@@ -1,6 +1,12 @@
 <template>
     <div>
-        test
+        <ul>
+            <li>
+                <NuxtLink to="/circle-packing">
+                    circle-packing
+                </NuxtLink>
+            </li>
+        </ul>
     </div>
 </template>
 
