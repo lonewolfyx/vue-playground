@@ -32,7 +32,7 @@ function handleSelect(node: unknown) {
 }
 </script>
 
-<style>
+<style scoped>
 body{
     background: aquamarine;
 }
