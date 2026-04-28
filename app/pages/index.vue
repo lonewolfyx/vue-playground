@@ -6,6 +6,11 @@
                     circle-packing
                 </NuxtLink>
             </li>
+            <li>
+                <NuxtLink to="/particle">
+                    Particle · [https://wereorbit.com/]
+                </NuxtLink>
+            </li>
         </ul>
     </div>
 </template>
