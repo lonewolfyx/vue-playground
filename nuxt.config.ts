@@ -16,6 +16,7 @@ export default defineNuxtConfig({
 
     app: {
         head: {
+            title: 'Vue Playground',
             viewport: 'width=device-width,initial-scale=1',
             link: [
                 { rel: 'icon', href: '/favicon.ico', sizes: 'any' },
