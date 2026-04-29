@@ -36,6 +36,10 @@ const playground = [
         label: 'particle',
         source: 'https://wereorbit.com',
     },
+    {
+        label: 'contribution-graph',
+        source: 'https://github.com',
+    },
 ]
 
 useHead({
