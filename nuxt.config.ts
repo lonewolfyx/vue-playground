@@ -15,6 +15,7 @@ export default defineNuxtConfig({
     },
 
     app: {
+        baseURL: '/',
         head: {
             title: 'Vue Playground',
             viewport: 'width=device-width,initial-scale=1',
