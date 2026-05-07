@@ -43,7 +43,7 @@
                     class="overflow-hidden rounded-lg border p-4"
                     style="resize: horizontal; min-width: 300px; max-width: 100%;"
                 >
-                    <GitHubContributionGraph :username="username" color-theme="orange" />
+                    <GitHubContributionGraph :username="username" color-theme="gray" />
                 </div>
             </div>
         </div>
