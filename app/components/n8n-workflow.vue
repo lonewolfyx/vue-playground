@@ -61,6 +61,17 @@
                 <Button
                     variant="outline"
                     size="sm"
+                    class="h-8 rounded-lg text-xs uppercase tracking-[0.2em] text-foreground/70 hover:text-destructive"
+                    aria-label="Clear workflow"
+                    @click="clearWorkflow"
+                >
+                    <Trash2 class="size-3.5" aria-hidden="true" />
+                    <span class="hidden sm:inline">Clear All</span>
+                </Button>
+
+                <Button
+                    variant="outline"
+                    size="sm"
                     class="h-8 rounded-lg text-xs uppercase tracking-[0.2em] text-foreground/70 hover:text-foreground"
                     aria-label="Add new node"
                     @click="addNode"
@@ -776,6 +787,15 @@ async function copyWorkflowData() {
     }, null, 2)
 
     await copy(payload)
+}
+
+function clearWorkflow() {
+    stopDragging()
+    stopPanning()
+    stopMiniMapDragging()
+
+    nodes.value = []
+    connections.value = []
 }
 
 function clampZoom(value: number) {
