@@ -100,8 +100,8 @@
                             :d="path.d"
                             fill="none"
                             stroke="currentColor"
-                            stroke-width="2"
-                            stroke-dasharray="8,6"
+                            :stroke-width="CONNECTION_STROKE_WIDTH"
+                            :stroke-dasharray="connectionDashArray"
                             stroke-linecap="round"
                             opacity="0.35"
                             class="text-foreground"
@@ -254,8 +254,8 @@
                                 :d="path.d"
                                 fill="none"
                                 stroke="rgba(148, 163, 184, 0.65)"
-                                :stroke-width="1"
-                                stroke-dasharray="3,2"
+                                :stroke-width="Math.max(0.6, CONNECTION_STROKE_WIDTH * 0.7)"
+                                :stroke-dasharray="`${Math.max(2, CONNECTION_DASH_LENGTH * 0.4)},${Math.max(2.5, CONNECTION_DASH_GAP * 0.4)}`"
                                 stroke-linecap="round"
                             />
 
@@ -399,6 +399,9 @@ const CANVAS_PADDING = 50
 const MIN_ZOOM = 0.5
 const MAX_ZOOM = 1.75
 const ZOOM_STEP = 0.01
+const CONNECTION_STROKE_WIDTH = 1
+const CONNECTION_DASH_LENGTH = 4
+const CONNECTION_DASH_GAP = 12
 const MINIMAP_WIDTH = 176
 const MINIMAP_HEIGHT = 116
 const MINIMAP_PADDING = 10
@@ -652,6 +655,8 @@ const miniMapConnectionPaths = computed<WorkflowConnectionPath[]>(() => {
         }]
     })
 })
+
+const connectionDashArray = `${CONNECTION_DASH_LENGTH},${CONNECTION_DASH_GAP}`
 
 const canvasBackgroundStyle = computed(() => {
     const spacing = GRID_SPACING * zoomScale.value
