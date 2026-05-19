@@ -209,6 +209,78 @@
                         </Card>
                     </Motion>
                 </div>
+
+                <div
+                    ref="miniMap"
+                    class="absolute right-4 bottom-4 z-20 overflow-hidden rounded-xl border border-border/50 bg-background/85 p-2 shadow-lg backdrop-blur-sm"
+                >
+                    <div class="mb-1 flex items-center justify-between gap-3 px-1">
+                        <span class="text-[9px] font-medium uppercase tracking-[0.24em] text-foreground/45">
+                            Mini Map
+                        </span>
+                        <span class="text-[9px] uppercase tracking-[0.18em] text-foreground/35">
+                            Drag to navigate
+                        </span>
+                    </div>
+
+                    <div
+                        class="relative h-[116px] w-[176px] cursor-pointer rounded-lg bg-background/90"
+                        @pointerdown="startMiniMapDrag"
+                    >
+                        <svg
+                            class="absolute inset-0"
+                            :width="MINIMAP_WIDTH"
+                            :height="MINIMAP_HEIGHT"
+                            aria-hidden="true"
+                        >
+                            <rect
+                                x="0"
+                                y="0"
+                                :width="MINIMAP_WIDTH"
+                                :height="MINIMAP_HEIGHT"
+                                rx="10"
+                                fill="rgba(148, 163, 184, 0.08)"
+                            />
+
+                            <path
+                                v-for="path in miniMapConnectionPaths"
+                                :key="path.id"
+                                :d="path.d"
+                                fill="none"
+                                stroke="rgba(148, 163, 184, 0.65)"
+                                :stroke-width="1"
+                                stroke-dasharray="3,2"
+                                stroke-linecap="round"
+                            />
+
+                            <rect
+                                v-for="node in miniMapNodes"
+                                :key="node.id"
+                                :x="node.x"
+                                :y="node.y"
+                                :width="Math.max(node.width, 8)"
+                                :height="Math.max(node.height, 8)"
+                                rx="4"
+                                :fill="miniMapColors[node.color]"
+                                fill-opacity="0.22"
+                                :stroke="miniMapColors[node.color]"
+                                stroke-opacity="0.7"
+                                :stroke-width="1"
+                            />
+
+                            <rect
+                                :x="miniMapViewport.x"
+                                :y="miniMapViewport.y"
+                                :width="Math.max(miniMapViewport.width, 14)"
+                                :height="Math.max(miniMapViewport.height, 14)"
+                                rx="6"
+                                fill="rgba(255,255,255,0.16)"
+                                stroke="rgba(255,255,255,0.9)"
+                                :stroke-width="1.2"
+                            />
+                        </svg>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -243,7 +315,7 @@
 
 <script setup lang="ts">
 import type { Component, HTMLAttributes } from 'vue'
-import { useEventListener } from '@vueuse/core'
+import { useElementSize, useEventListener } from '@vueuse/core'
 import {
     ArrowDown,
     ArrowRight,
@@ -305,6 +377,10 @@ interface PanState {
     viewportStart: Position
 }
 
+interface MiniMapDragState {
+    pointerId: number
+}
+
 type WorkflowNodeTemplate = Omit<WorkflowNode, 'id' | 'position'>
 
 const NODE_WIDTH = 200
@@ -315,6 +391,9 @@ const CANVAS_PADDING = 50
 const MIN_ZOOM = 0.5
 const MAX_ZOOM = 1.75
 const ZOOM_STEP = 0.1
+const MINIMAP_WIDTH = 176
+const MINIMAP_HEIGHT = 116
+const MINIMAP_PADDING = 10
 
 const nodeTemplates: WorkflowNodeTemplate[] = [
     {
@@ -397,13 +476,24 @@ const colorClasses: Record<WorkflowNodeColor, HTMLAttributes['class']> = {
     indigo: 'border-indigo-400/40 bg-indigo-400/10 text-indigo-400',
 }
 
+const miniMapColors: Record<WorkflowNodeColor, string> = {
+    emerald: '#34D399',
+    blue: '#60A5FA',
+    amber: '#FBBF24',
+    purple: '#C084FC',
+    indigo: '#818CF8',
+}
+
 const canvasRef = useTemplateRef<HTMLDivElement>('canvas')
+const miniMapRef = useTemplateRef<HTMLDivElement>('miniMap')
 const dragState = shallowRef<DragState | null>(null)
 const panState = shallowRef<PanState | null>(null)
+const miniMapDragState = shallowRef<MiniMapDragState | null>(null)
 const previousUserSelect = shallowRef('')
 const previousCanvasCursor = shallowRef('')
 const zoomScale = shallowRef(1)
 const viewportPosition = ref<Position>({ x: 120, y: 120 })
+const { width: canvasWidth, height: canvasHeight } = useElementSize(canvasRef)
 
 const draggingNodeId = computed(() => dragState.value?.nodeId ?? null)
 const isPanning = computed(() => panState.value !== null)
@@ -429,6 +519,53 @@ const sceneBounds = computed(() => {
     }
 })
 
+const miniMapScale = computed(() => {
+    const availableWidth = MINIMAP_WIDTH - MINIMAP_PADDING * 2
+    const availableHeight = MINIMAP_HEIGHT - MINIMAP_PADDING * 2
+
+    return Math.min(
+        availableWidth / Math.max(sceneBounds.value.width, 1),
+        availableHeight / Math.max(sceneBounds.value.height, 1),
+    )
+})
+
+const miniMapScene = computed(() => {
+    const scaledWidth = sceneBounds.value.width * miniMapScale.value
+    const scaledHeight = sceneBounds.value.height * miniMapScale.value
+
+    return {
+        x: (MINIMAP_WIDTH - scaledWidth) / 2,
+        y: (MINIMAP_HEIGHT - scaledHeight) / 2,
+        width: scaledWidth,
+        height: scaledHeight,
+    }
+})
+
+const miniMapNodes = computed(() => {
+    return nodes.value.map(node => ({
+        id: node.id,
+        x: miniMapScene.value.x + (node.position.x + sceneBounds.value.offsetX) * miniMapScale.value,
+        y: miniMapScene.value.y + (node.position.y + sceneBounds.value.offsetY) * miniMapScale.value,
+        width: NODE_WIDTH * miniMapScale.value,
+        height: NODE_HEIGHT * miniMapScale.value,
+        color: node.color,
+    }))
+})
+
+const miniMapViewport = computed(() => {
+    const visibleLocalX = -viewportPosition.value.x / zoomScale.value
+    const visibleLocalY = -viewportPosition.value.y / zoomScale.value
+    const visibleLocalWidth = canvasWidth.value / zoomScale.value
+    const visibleLocalHeight = canvasHeight.value / zoomScale.value
+
+    return {
+        x: miniMapScene.value.x + visibleLocalX * miniMapScale.value,
+        y: miniMapScene.value.y + visibleLocalY * miniMapScale.value,
+        width: Math.min(sceneBounds.value.width, visibleLocalWidth) * miniMapScale.value,
+        height: Math.min(sceneBounds.value.height, visibleLocalHeight) * miniMapScale.value,
+    }
+})
+
 const connectionPaths = computed<WorkflowConnectionPath[]>(() => {
     return connections.value.flatMap((connection) => {
         const fromNode = nodeMap.value.get(connection.from)
@@ -442,6 +579,29 @@ const connectionPaths = computed<WorkflowConnectionPath[]>(() => {
         const startY = fromNode.position.y + sceneBounds.value.offsetY + NODE_HEIGHT / 2
         const endX = toNode.position.x + sceneBounds.value.offsetX
         const endY = toNode.position.y + sceneBounds.value.offsetY + NODE_HEIGHT / 2
+        const cp1X = startX + (endX - startX) * 0.5
+        const cp2X = endX - (endX - startX) * 0.5
+
+        return [{
+            id: `${connection.from}-${connection.to}`,
+            d: `M${startX},${startY} C${cp1X},${startY} ${cp2X},${endY} ${endX},${endY}`,
+        }]
+    })
+})
+
+const miniMapConnectionPaths = computed<WorkflowConnectionPath[]>(() => {
+    return connections.value.flatMap((connection) => {
+        const fromNode = nodeMap.value.get(connection.from)
+        const toNode = nodeMap.value.get(connection.to)
+
+        if (!fromNode || !toNode) {
+            return []
+        }
+
+        const startX = miniMapScene.value.x + (fromNode.position.x + sceneBounds.value.offsetX + NODE_WIDTH) * miniMapScale.value
+        const startY = miniMapScene.value.y + (fromNode.position.y + sceneBounds.value.offsetY + NODE_HEIGHT / 2) * miniMapScale.value
+        const endX = miniMapScene.value.x + (toNode.position.x + sceneBounds.value.offsetX) * miniMapScale.value
+        const endY = miniMapScene.value.y + (toNode.position.y + sceneBounds.value.offsetY + NODE_HEIGHT / 2) * miniMapScale.value
         const cp1X = startX + (endX - startX) * 0.5
         const cp2X = endX - (endX - startX) * 0.5
 
@@ -541,6 +701,13 @@ function setZoom(nextZoom: number, focusPoint?: { clientX: number, clientY: numb
     })
 }
 
+function centerViewportAtScenePoint(localX: number, localY: number) {
+    viewportPosition.value = {
+        x: canvasWidth.value / 2 - localX * zoomScale.value,
+        y: canvasHeight.value / 2 - localY * zoomScale.value,
+    }
+}
+
 function zoomIn() {
     setZoom(zoomScale.value + ZOOM_STEP, getViewportCenter() ?? undefined)
 }
@@ -574,6 +741,40 @@ function handleCanvasWheel(event: WheelEvent) {
         clientX: event.clientX,
         clientY: event.clientY,
     })
+}
+
+function updateViewportFromMiniMapEvent(event: PointerEvent) {
+    const miniMap = miniMapRef.value
+
+    if (!miniMap) {
+        return
+    }
+
+    const rect = miniMap.getBoundingClientRect()
+    const relativeX = event.clientX - rect.left
+    const relativeY = event.clientY - rect.top
+    const localX = (relativeX - miniMapScene.value.x) / miniMapScale.value
+    const localY = (relativeY - miniMapScene.value.y) / miniMapScale.value
+
+    centerViewportAtScenePoint(localX, localY)
+}
+
+function startMiniMapDrag(event: PointerEvent) {
+    if (event.button !== 0) {
+        return
+    }
+
+    event.preventDefault()
+    event.stopPropagation()
+
+    const target = event.currentTarget as HTMLElement | null
+    target?.setPointerCapture?.(event.pointerId)
+
+    miniMapDragState.value = {
+        pointerId: event.pointerId,
+    }
+
+    updateViewportFromMiniMapEvent(event)
 }
 
 function startPanning(event: PointerEvent) {
@@ -666,6 +867,14 @@ function updatePanning(event: PointerEvent) {
     }
 }
 
+function updateMiniMapDragging(event: PointerEvent) {
+    if (!miniMapDragState.value || event.pointerId !== miniMapDragState.value.pointerId) {
+        return
+    }
+
+    updateViewportFromMiniMapEvent(event)
+}
+
 function stopDragging(pointerId?: number) {
     if (pointerId !== undefined && dragState.value && dragState.value.pointerId !== pointerId) {
         return
@@ -686,6 +895,14 @@ function stopPanning(pointerId?: number) {
     if (canvasRef.value) {
         canvasRef.value.style.cursor = previousCanvasCursor.value
     }
+}
+
+function stopMiniMapDragging(pointerId?: number) {
+    if (pointerId !== undefined && miniMapDragState.value && miniMapDragState.value.pointerId !== pointerId) {
+        return
+    }
+
+    miniMapDragState.value = null
 }
 
 async function addNode() {
@@ -846,15 +1063,19 @@ function getNodeStyle(position: Position) {
 if (import.meta.client) {
     useEventListener(window, 'pointermove', updateDragging)
     useEventListener(window, 'pointermove', updatePanning)
+    useEventListener(window, 'pointermove', updateMiniMapDragging)
     useEventListener(window, 'pointerup', event => stopDragging(event.pointerId))
     useEventListener(window, 'pointerup', event => stopPanning(event.pointerId))
+    useEventListener(window, 'pointerup', event => stopMiniMapDragging(event.pointerId))
     useEventListener(window, 'pointercancel', event => stopDragging(event.pointerId))
     useEventListener(window, 'pointercancel', event => stopPanning(event.pointerId))
+    useEventListener(window, 'pointercancel', event => stopMiniMapDragging(event.pointerId))
     useEventListener(canvasRef, 'wheel', handleCanvasWheel, { passive: false })
 }
 
 onUnmounted(() => {
     stopDragging()
     stopPanning()
+    stopMiniMapDragging()
 })
 </script>
