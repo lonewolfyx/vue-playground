@@ -214,7 +214,7 @@
                                         )"
                                         aria-hidden="true"
                                     >
-                                        <component :is="node.icon" class="size-4" />
+                                        <component :is="iconMap[node.iconKey]" class="size-4" />
                                     </div>
 
                                     <div class="min-w-0 flex-1">
@@ -386,7 +386,7 @@
 </template>
 
 <script setup lang="ts">
-import type { Component, HTMLAttributes } from 'vue'
+import type { HTMLAttributes } from 'vue'
 import { useClipboard, useElementSize, useEventListener } from '@vueuse/core'
 import {
     ArrowDown,
@@ -416,13 +416,14 @@ interface Position {
 
 type WorkflowNodeType = 'trigger' | 'action' | 'condition'
 type WorkflowNodeColor = 'emerald' | 'blue' | 'amber' | 'purple' | 'indigo'
+type WorkflowNodeIconKey = 'Webhook' | 'Database' | 'Settings' | 'Mail' | 'Zap'
 
 interface WorkflowNode {
     id: string
     type: WorkflowNodeType
     title: string
     description: string
-    icon: Component
+    iconKey: WorkflowNodeIconKey
     color: WorkflowNodeColor
     position: Position
 }
@@ -430,6 +431,11 @@ interface WorkflowNode {
 interface WorkflowConnection {
     from: string
     to: string
+}
+
+interface WorkflowData {
+    nodes: WorkflowNode[]
+    connections: WorkflowConnection[]
 }
 
 interface WorkflowConnectionPath {
@@ -485,78 +491,196 @@ const MINIMAP_HEIGHT = 116
 const MINIMAP_PADDING = 10
 const GRID_SPACING = 20
 
+const iconMap: Record<WorkflowNodeIconKey, typeof Webhook> = {
+    Webhook,
+    Database,
+    Settings,
+    Mail,
+    Zap,
+}
+
 const nodeTemplates: WorkflowNodeTemplate[] = [
     {
         type: 'trigger',
         title: 'Webhook',
         description: 'Receive data from external service',
-        icon: Webhook,
+        iconKey: 'Webhook',
         color: 'emerald',
     },
     {
         type: 'action',
         title: 'Database Query',
         description: 'Fetch user records',
-        icon: Database,
+        iconKey: 'Database',
         color: 'blue',
     },
     {
         type: 'condition',
         title: 'Condition',
         description: 'Check user status',
-        icon: Settings,
+        iconKey: 'Settings',
         color: 'amber',
     },
     {
         type: 'action',
         title: 'Send Email',
         description: 'Notify user',
-        icon: Mail,
+        iconKey: 'Mail',
         color: 'purple',
     },
     {
         type: 'action',
         title: 'Log Event',
         description: 'Record activity',
-        icon: Zap,
+        iconKey: 'Zap',
         color: 'indigo',
     },
 ]
 
-const nodes = ref<WorkflowNode[]>([
-    {
-        id: 'node-1',
-        type: 'trigger',
-        title: 'Webhook',
-        description: 'Receive data from external service',
-        icon: Webhook,
-        color: 'emerald',
-        position: { x: 50, y: 100 },
-    },
-    {
-        id: 'node-2',
-        type: 'action',
-        title: 'Database Query',
-        description: 'Fetch user records',
-        icon: Database,
-        color: 'blue',
-        position: { x: 300, y: 100 },
-    },
-    {
-        id: 'node-3',
-        type: 'condition',
-        title: 'Condition',
-        description: 'Check user status',
-        icon: Settings,
-        color: 'amber',
-        position: { x: 550, y: 100 },
-    },
-])
+const initialWorkflowData: WorkflowData = {
+    nodes: [
+        {
+            id: 'node-1',
+            type: 'trigger',
+            title: 'Webhook',
+            description: 'Receive data from external service',
+            iconKey: 'Webhook',
+            color: 'emerald',
+            position: {
+                x: -174.66015625,
+                y: -57.375,
+            },
+        },
+        {
+            id: 'node-2',
+            type: 'action',
+            title: 'Database Query',
+            description: 'Fetch user records',
+            iconKey: 'Database',
+            color: 'blue',
+            position: {
+                x: 286.671875,
+                y: -68.984375,
+            },
+        },
+        {
+            id: 'node-3',
+            type: 'condition',
+            title: 'Condition',
+            description: 'Check user status',
+            iconKey: 'Settings',
+            color: 'amber',
+            position: {
+                x: 656.96875,
+                y: 22.1640625,
+            },
+        },
+        {
+            id: 'node-1779174288496',
+            type: 'action',
+            title: 'Database Query',
+            description: 'Fetch user records',
+            iconKey: 'Database',
+            color: 'blue',
+            position: {
+                x: 323.2265625,
+                y: 269.31640625,
+            },
+        },
+        {
+            id: 'node-1779174289292',
+            type: 'condition',
+            title: 'Condition',
+            description: 'Check user status',
+            iconKey: 'Settings',
+            color: 'amber',
+            position: {
+                x: 653.1328125,
+                y: -295.875,
+            },
+        },
+        {
+            id: 'node-1779174315828',
+            type: 'action',
+            title: 'Send Email',
+            description: 'Notify user',
+            iconKey: 'Mail',
+            color: 'purple',
+            position: {
+                x: 306.2265625,
+                y: 582.68359375,
+            },
+        },
+        {
+            id: 'node-1779174317498',
+            type: 'action',
+            title: 'Send Email',
+            description: 'Notify user',
+            iconKey: 'Mail',
+            color: 'purple',
+            position: {
+                x: 882.6875,
+                y: 418.04296875,
+            },
+        },
+        {
+            id: 'node-1779174318255',
+            type: 'action',
+            title: 'Send Email',
+            description: 'Notify user',
+            iconKey: 'Mail',
+            color: 'purple',
+            position: {
+                x: 1145.890625,
+                y: 76.94140625,
+            },
+        },
+    ],
+    connections: [
+        {
+            from: 'node-1',
+            to: 'node-2',
+        },
+        {
+            from: 'node-2',
+            to: 'node-3',
+        },
+        {
+            from: 'node-1',
+            to: 'node-1779174288496',
+        },
+        {
+            from: 'node-2',
+            to: 'node-1779174289292',
+        },
+        {
+            from: 'node-1',
+            to: 'node-1779174315828',
+        },
+        {
+            from: 'node-1779174288496',
+            to: 'node-1779174317498',
+        },
+        {
+            from: 'node-1779174288496',
+            to: 'node-1779174318255',
+        },
+    ],
+}
 
-const connections = ref<WorkflowConnection[]>([
-    { from: 'node-1', to: 'node-2' },
-    { from: 'node-2', to: 'node-3' },
-])
+function cloneWorkflowData(workflowData: WorkflowData): WorkflowData {
+    return {
+        nodes: workflowData.nodes.map(node => ({
+            ...node,
+            position: { ...node.position },
+        })),
+        connections: workflowData.connections.map(connection => ({ ...connection })),
+    }
+}
+
+const { nodes: initialNodes, connections: initialConnections } = cloneWorkflowData(initialWorkflowData)
+const nodes = ref<WorkflowNode[]>(initialNodes)
+const connections = ref<WorkflowConnection[]>(initialConnections)
 
 const colorClasses: Record<WorkflowNodeColor, HTMLAttributes['class']> = {
     emerald: 'border-emerald-400/40 bg-emerald-400/10 text-emerald-400',
@@ -984,17 +1108,10 @@ function startIncomingConnection(nodeId: string, event: PointerEvent) {
 }
 
 async function copyWorkflowData() {
-    const payload = JSON.stringify({
-        nodes: nodes.value.map(node => ({
-            id: node.id,
-            type: node.type,
-            title: node.title,
-            description: node.description,
-            color: node.color,
-            position: node.position,
-        })),
+    const payload = JSON.stringify(cloneWorkflowData({
+        nodes: nodes.value,
         connections: connections.value,
-    }, null, 2)
+    }), null, 2)
 
     await copy(payload)
 }
