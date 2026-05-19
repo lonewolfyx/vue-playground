@@ -657,10 +657,12 @@ const canvasBackgroundStyle = computed(() => {
     const spacing = GRID_SPACING * zoomScale.value
     const offsetX = viewportPosition.value.x % spacing
     const offsetY = viewportPosition.value.y % spacing
+    const dotSize = Math.max(0.35, Math.min(0.8, 0.8 * zoomScale.value))
+    const transparentStop = Number((dotSize + 0.1).toFixed(2))
 
     return {
         backgroundColor: 'rgba(248, 250, 252, 0.92)',
-        backgroundImage: 'radial-gradient(circle, rgba(15, 23, 42, 0.28) 0.8px, transparent 0.9px)',
+        backgroundImage: `radial-gradient(circle, rgba(15, 23, 42, 0.28) ${dotSize}px, transparent ${transparentStop}px)`,
         backgroundPosition: `${offsetX}px ${offsetY}px`,
         backgroundSize: `${spacing}px ${spacing}px`,
     }
