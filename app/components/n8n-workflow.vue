@@ -74,6 +74,12 @@
         >
             <div class="absolute inset-0">
                 <div
+                    class="absolute inset-0"
+                    :style="canvasBackgroundStyle"
+                    aria-hidden="true"
+                />
+
+                <div
                     class="absolute top-0 left-0 origin-top-left"
                     :style="{
                         width: `${sceneBounds.width}px`,
@@ -211,7 +217,6 @@
                 </div>
 
                 <div
-                    ref="miniMap"
                     class="absolute right-4 bottom-4 z-20 overflow-hidden rounded-xl border border-border/50 bg-background/85 p-2 shadow-lg backdrop-blur-sm"
                 >
                     <div class="mb-1 flex items-center justify-between gap-3 px-1">
@@ -224,6 +229,7 @@
                     </div>
 
                     <div
+                        ref="miniMap"
                         class="relative h-[116px] w-[176px] cursor-pointer rounded-lg bg-background/90"
                         @pointerdown="startMiniMapDrag"
                     >
@@ -330,7 +336,7 @@ import {
     Zap,
 } from 'lucide-vue-next'
 import { Motion } from 'motion-v'
-import { computed, nextTick, onUnmounted, ref, shallowRef, useTemplateRef } from 'vue'
+import { computed, nextTick, onUnmounted, ref, shallowRef, useTemplateRef, watch } from 'vue'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -379,6 +385,8 @@ interface PanState {
 
 interface MiniMapDragState {
     pointerId: number
+    mode: 'viewport' | 'jump'
+    grabOffset: Position
 }
 
 type WorkflowNodeTemplate = Omit<WorkflowNode, 'id' | 'position'>
@@ -390,10 +398,11 @@ const NODE_VERTICAL_GAP = 40
 const CANVAS_PADDING = 50
 const MIN_ZOOM = 0.5
 const MAX_ZOOM = 1.75
-const ZOOM_STEP = 0.1
+const ZOOM_STEP = 0.01
 const MINIMAP_WIDTH = 176
 const MINIMAP_HEIGHT = 116
 const MINIMAP_PADDING = 10
+const GRID_SPACING = 20
 
 const nodeTemplates: WorkflowNodeTemplate[] = [
     {
@@ -489,6 +498,7 @@ const miniMapRef = useTemplateRef<HTMLDivElement>('miniMap')
 const dragState = shallowRef<DragState | null>(null)
 const panState = shallowRef<PanState | null>(null)
 const miniMapDragState = shallowRef<MiniMapDragState | null>(null)
+const hasAutoCenteredViewport = shallowRef(false)
 const previousUserSelect = shallowRef('')
 const previousCanvasCursor = shallowRef('')
 const zoomScale = shallowRef(1)
@@ -519,19 +529,48 @@ const sceneBounds = computed(() => {
     }
 })
 
+const visibleWorldRect = computed(() => {
+    return {
+        x: -viewportPosition.value.x / zoomScale.value,
+        y: -viewportPosition.value.y / zoomScale.value,
+        width: canvasWidth.value / zoomScale.value,
+        height: canvasHeight.value / zoomScale.value,
+    }
+})
+
+const navigationBounds = computed(() => {
+    const minX = Math.min(0, visibleWorldRect.value.x)
+    const minY = Math.min(0, visibleWorldRect.value.y)
+    const maxX = Math.max(
+        sceneBounds.value.width,
+        visibleWorldRect.value.x + visibleWorldRect.value.width,
+    )
+    const maxY = Math.max(
+        sceneBounds.value.height,
+        visibleWorldRect.value.y + visibleWorldRect.value.height,
+    )
+
+    return {
+        minX,
+        minY,
+        width: maxX - minX,
+        height: maxY - minY,
+    }
+})
+
 const miniMapScale = computed(() => {
     const availableWidth = MINIMAP_WIDTH - MINIMAP_PADDING * 2
     const availableHeight = MINIMAP_HEIGHT - MINIMAP_PADDING * 2
 
     return Math.min(
-        availableWidth / Math.max(sceneBounds.value.width, 1),
-        availableHeight / Math.max(sceneBounds.value.height, 1),
+        availableWidth / Math.max(navigationBounds.value.width, 1),
+        availableHeight / Math.max(navigationBounds.value.height, 1),
     )
 })
 
 const miniMapScene = computed(() => {
-    const scaledWidth = sceneBounds.value.width * miniMapScale.value
-    const scaledHeight = sceneBounds.value.height * miniMapScale.value
+    const scaledWidth = navigationBounds.value.width * miniMapScale.value
+    const scaledHeight = navigationBounds.value.height * miniMapScale.value
 
     return {
         x: (MINIMAP_WIDTH - scaledWidth) / 2,
@@ -544,8 +583,8 @@ const miniMapScene = computed(() => {
 const miniMapNodes = computed(() => {
     return nodes.value.map(node => ({
         id: node.id,
-        x: miniMapScene.value.x + (node.position.x + sceneBounds.value.offsetX) * miniMapScale.value,
-        y: miniMapScene.value.y + (node.position.y + sceneBounds.value.offsetY) * miniMapScale.value,
+        x: miniMapScene.value.x + ((node.position.x + sceneBounds.value.offsetX) - navigationBounds.value.minX) * miniMapScale.value,
+        y: miniMapScene.value.y + ((node.position.y + sceneBounds.value.offsetY) - navigationBounds.value.minY) * miniMapScale.value,
         width: NODE_WIDTH * miniMapScale.value,
         height: NODE_HEIGHT * miniMapScale.value,
         color: node.color,
@@ -553,16 +592,18 @@ const miniMapNodes = computed(() => {
 })
 
 const miniMapViewport = computed(() => {
-    const visibleLocalX = -viewportPosition.value.x / zoomScale.value
-    const visibleLocalY = -viewportPosition.value.y / zoomScale.value
-    const visibleLocalWidth = canvasWidth.value / zoomScale.value
-    const visibleLocalHeight = canvasHeight.value / zoomScale.value
+    const visibleLocalX = visibleWorldRect.value.x
+    const visibleLocalY = visibleWorldRect.value.y
+    const visibleLocalWidth = visibleWorldRect.value.width
+    const visibleLocalHeight = visibleWorldRect.value.height
 
     return {
-        x: miniMapScene.value.x + visibleLocalX * miniMapScale.value,
-        y: miniMapScene.value.y + visibleLocalY * miniMapScale.value,
-        width: Math.min(sceneBounds.value.width, visibleLocalWidth) * miniMapScale.value,
-        height: Math.min(sceneBounds.value.height, visibleLocalHeight) * miniMapScale.value,
+        x: miniMapScene.value.x + (visibleLocalX - navigationBounds.value.minX) * miniMapScale.value,
+        y: miniMapScene.value.y + (visibleLocalY - navigationBounds.value.minY) * miniMapScale.value,
+        width: visibleLocalWidth * miniMapScale.value,
+        height: visibleLocalHeight * miniMapScale.value,
+        localX: visibleLocalX,
+        localY: visibleLocalY,
     }
 })
 
@@ -598,10 +639,10 @@ const miniMapConnectionPaths = computed<WorkflowConnectionPath[]>(() => {
             return []
         }
 
-        const startX = miniMapScene.value.x + (fromNode.position.x + sceneBounds.value.offsetX + NODE_WIDTH) * miniMapScale.value
-        const startY = miniMapScene.value.y + (fromNode.position.y + sceneBounds.value.offsetY + NODE_HEIGHT / 2) * miniMapScale.value
-        const endX = miniMapScene.value.x + (toNode.position.x + sceneBounds.value.offsetX) * miniMapScale.value
-        const endY = miniMapScene.value.y + (toNode.position.y + sceneBounds.value.offsetY + NODE_HEIGHT / 2) * miniMapScale.value
+        const startX = miniMapScene.value.x + ((fromNode.position.x + sceneBounds.value.offsetX + NODE_WIDTH) - navigationBounds.value.minX) * miniMapScale.value
+        const startY = miniMapScene.value.y + ((fromNode.position.y + sceneBounds.value.offsetY + NODE_HEIGHT / 2) - navigationBounds.value.minY) * miniMapScale.value
+        const endX = miniMapScene.value.x + ((toNode.position.x + sceneBounds.value.offsetX) - navigationBounds.value.minX) * miniMapScale.value
+        const endY = miniMapScene.value.y + ((toNode.position.y + sceneBounds.value.offsetY + NODE_HEIGHT / 2) - navigationBounds.value.minY) * miniMapScale.value
         const cp1X = startX + (endX - startX) * 0.5
         const cp2X = endX - (endX - startX) * 0.5
 
@@ -610,6 +651,19 @@ const miniMapConnectionPaths = computed<WorkflowConnectionPath[]>(() => {
             d: `M${startX},${startY} C${cp1X},${startY} ${cp2X},${endY} ${endX},${endY}`,
         }]
     })
+})
+
+const canvasBackgroundStyle = computed(() => {
+    const spacing = GRID_SPACING * zoomScale.value
+    const offsetX = viewportPosition.value.x % spacing
+    const offsetY = viewportPosition.value.y % spacing
+
+    return {
+        backgroundColor: 'rgba(248, 250, 252, 0.92)',
+        backgroundImage: 'radial-gradient(circle, rgba(15, 23, 42, 0.28) 0.8px, transparent 0.9px)',
+        backgroundPosition: `${offsetX}px ${offsetY}px`,
+        backgroundSize: `${spacing}px ${spacing}px`,
+    }
 })
 
 function getParentConnection(nodeId: string) {
@@ -708,6 +762,18 @@ function centerViewportAtScenePoint(localX: number, localY: number) {
     }
 }
 
+function setViewportTopLeft(localX: number, localY: number) {
+    viewportPosition.value = {
+        x: -localX * zoomScale.value,
+        y: -localY * zoomScale.value,
+    }
+}
+
+function centerSceneInViewport(nextZoom = zoomScale.value) {
+    zoomScale.value = clampZoom(nextZoom)
+    centerViewportAtScenePoint(sceneBounds.value.width / 2, sceneBounds.value.height / 2)
+}
+
 function zoomIn() {
     setZoom(zoomScale.value + ZOOM_STEP, getViewportCenter() ?? undefined)
 }
@@ -717,7 +783,7 @@ function zoomOut() {
 }
 
 function resetZoom() {
-    setZoom(1, getViewportCenter() ?? undefined)
+    centerSceneInViewport(1)
 }
 
 function handleCanvasWheel(event: WheelEvent) {
@@ -753,8 +819,16 @@ function updateViewportFromMiniMapEvent(event: PointerEvent) {
     const rect = miniMap.getBoundingClientRect()
     const relativeX = event.clientX - rect.left
     const relativeY = event.clientY - rect.top
-    const localX = (relativeX - miniMapScene.value.x) / miniMapScale.value
-    const localY = (relativeY - miniMapScene.value.y) / miniMapScale.value
+    const localX = (relativeX - miniMapScene.value.x) / miniMapScale.value + navigationBounds.value.minX
+    const localY = (relativeY - miniMapScene.value.y) / miniMapScale.value + navigationBounds.value.minY
+
+    if (miniMapDragState.value?.mode === 'viewport') {
+        setViewportTopLeft(
+            localX - miniMapDragState.value.grabOffset.x,
+            localY - miniMapDragState.value.grabOffset.y,
+        )
+        return
+    }
 
     centerViewportAtScenePoint(localX, localY)
 }
@@ -770,8 +844,32 @@ function startMiniMapDrag(event: PointerEvent) {
     const target = event.currentTarget as HTMLElement | null
     target?.setPointerCapture?.(event.pointerId)
 
+    const miniMap = miniMapRef.value
+
+    if (!miniMap) {
+        return
+    }
+
+    const rect = miniMap.getBoundingClientRect()
+    const relativeX = event.clientX - rect.left
+    const relativeY = event.clientY - rect.top
+    const isInsideViewport = relativeX >= miniMapViewport.value.x
+        && relativeX <= miniMapViewport.value.x + Math.max(miniMapViewport.value.width, 14)
+        && relativeY >= miniMapViewport.value.y
+        && relativeY <= miniMapViewport.value.y + Math.max(miniMapViewport.value.height, 14)
+
     miniMapDragState.value = {
         pointerId: event.pointerId,
+        mode: isInsideViewport ? 'viewport' : 'jump',
+        grabOffset: isInsideViewport
+            ? {
+                    x: (relativeX - miniMapViewport.value.x) / miniMapScale.value,
+                    y: (relativeY - miniMapViewport.value.y) / miniMapScale.value,
+                }
+            : {
+                    x: canvasWidth.value / zoomScale.value / 2,
+                    y: canvasHeight.value / zoomScale.value / 2,
+                },
     }
 
     updateViewportFromMiniMapEvent(event)
@@ -1072,6 +1170,19 @@ if (import.meta.client) {
     useEventListener(window, 'pointercancel', event => stopMiniMapDragging(event.pointerId))
     useEventListener(canvasRef, 'wheel', handleCanvasWheel, { passive: false })
 }
+
+watch([canvasWidth, canvasHeight, sceneBounds], () => {
+    if (hasAutoCenteredViewport.value) {
+        return
+    }
+
+    if (canvasWidth.value <= 0 || canvasHeight.value <= 0) {
+        return
+    }
+
+    centerSceneInViewport(1)
+    hasAutoCenteredViewport.value = true
+}, { flush: 'post' })
 
 onUnmounted(() => {
     stopDragging()
