@@ -81,11 +81,7 @@
 
                 <div
                     class="absolute top-0 left-0 origin-top-left"
-                    :style="{
-                        width: `${sceneBounds.width}px`,
-                        height: `${sceneBounds.height}px`,
-                        transform: `translate(${viewportPosition.x}px, ${viewportPosition.y}px) scale(${zoomScale})`,
-                    }"
+                    :style="sceneTransformStyle"
                 >
                     <svg
                         class="pointer-events-none absolute top-0 left-0"
@@ -517,10 +513,21 @@ const nodeMap = computed(() => {
 })
 
 const sceneBounds = computed(() => {
-    const minX = Math.min(0, ...nodes.value.map(node => node.position.x)) - CANVAS_PADDING
-    const minY = Math.min(0, ...nodes.value.map(node => node.position.y)) - CANVAS_PADDING
-    const maxX = Math.max(0, ...nodes.value.map(node => node.position.x + NODE_WIDTH)) + CANVAS_PADDING
-    const maxY = Math.max(0, ...nodes.value.map(node => node.position.y + NODE_HEIGHT)) + CANVAS_PADDING
+    if (nodes.value.length === 0) {
+        return {
+            minX: -CANVAS_PADDING,
+            minY: -CANVAS_PADDING,
+            width: CANVAS_PADDING * 2,
+            height: CANVAS_PADDING * 2,
+            offsetX: CANVAS_PADDING,
+            offsetY: CANVAS_PADDING,
+        }
+    }
+
+    const minX = Math.min(...nodes.value.map(node => node.position.x)) - CANVAS_PADDING
+    const minY = Math.min(...nodes.value.map(node => node.position.y)) - CANVAS_PADDING
+    const maxX = Math.max(...nodes.value.map(node => node.position.x + NODE_WIDTH)) + CANVAS_PADDING
+    const maxY = Math.max(...nodes.value.map(node => node.position.y + NODE_HEIGHT)) + CANVAS_PADDING
 
     return {
         minX,
@@ -658,6 +665,14 @@ const miniMapConnectionPaths = computed<WorkflowConnectionPath[]>(() => {
 
 const connectionDashArray = `${CONNECTION_DASH_LENGTH},${CONNECTION_DASH_GAP}`
 
+const sceneTransformStyle = computed(() => {
+    return {
+        width: `${sceneBounds.value.width}px`,
+        height: `${sceneBounds.value.height}px`,
+        transform: `translate(${viewportPosition.value.x - sceneBounds.value.offsetX * zoomScale.value}px, ${viewportPosition.value.y - sceneBounds.value.offsetY * zoomScale.value}px) scale(${zoomScale.value})`,
+    }
+})
+
 const canvasBackgroundStyle = computed(() => {
     const spacing = GRID_SPACING * zoomScale.value
     const offsetX = viewportPosition.value.x % spacing
@@ -778,7 +793,10 @@ function setViewportTopLeft(localX: number, localY: number) {
 
 function centerSceneInViewport(nextZoom = zoomScale.value) {
     zoomScale.value = clampZoom(nextZoom)
-    centerViewportAtScenePoint(sceneBounds.value.width / 2, sceneBounds.value.height / 2)
+    centerViewportAtScenePoint(
+        sceneBounds.value.minX + sceneBounds.value.width / 2,
+        sceneBounds.value.minY + sceneBounds.value.height / 2,
+    )
 }
 
 function zoomIn() {
@@ -1126,10 +1144,8 @@ async function scrollToNode(position: Position) {
     }
 
     const margin = 100
-    const localX = position.x + sceneBounds.value.offsetX
-    const localY = position.y + sceneBounds.value.offsetY
-    const screenLeft = viewportPosition.value.x + localX * zoomScale.value
-    const screenTop = viewportPosition.value.y + localY * zoomScale.value
+    const screenLeft = viewportPosition.value.x + position.x * zoomScale.value
+    const screenTop = viewportPosition.value.y + position.y * zoomScale.value
     const screenRight = screenLeft + NODE_WIDTH * zoomScale.value
     const screenBottom = screenTop + NODE_HEIGHT * zoomScale.value
 
