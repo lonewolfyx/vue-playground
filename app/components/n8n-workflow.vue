@@ -525,6 +525,26 @@ const nodeMap = computed(() => {
     return new Map(nodes.value.map(node => [node.id, node]))
 })
 
+function buildConnectionPath(
+    fromX: number,
+    fromY: number,
+    toX: number,
+    toY: number,
+    nodeWidth: number,
+    nodeHeight: number,
+) {
+    const direction = toX >= fromX ? 1 : -1
+    const startX = fromX + (direction === 1 ? nodeWidth : 0)
+    const startY = fromY + nodeHeight / 2
+    const endX = toX + (direction === 1 ? 0 : nodeWidth)
+    const endY = toY + nodeHeight / 2
+    const handleOffset = Math.max(nodeWidth * 0.3, Math.abs(endX - startX) * 0.5)
+    const cp1X = startX + direction * handleOffset
+    const cp2X = endX - direction * handleOffset
+
+    return `M${startX},${startY} C${cp1X},${startY} ${cp2X},${endY} ${endX},${endY}`
+}
+
 const sceneBounds = computed(() => {
     if (nodes.value.length === 0) {
         return {
@@ -639,16 +659,16 @@ const connectionPaths = computed<WorkflowConnectionPath[]>(() => {
             return []
         }
 
-        const startX = fromNode.position.x + sceneBounds.value.offsetX + NODE_WIDTH
-        const startY = fromNode.position.y + sceneBounds.value.offsetY + NODE_HEIGHT / 2
-        const endX = toNode.position.x + sceneBounds.value.offsetX
-        const endY = toNode.position.y + sceneBounds.value.offsetY + NODE_HEIGHT / 2
-        const cp1X = startX + (endX - startX) * 0.5
-        const cp2X = endX - (endX - startX) * 0.5
-
         return [{
             id: `${connection.from}-${connection.to}`,
-            d: `M${startX},${startY} C${cp1X},${startY} ${cp2X},${endY} ${endX},${endY}`,
+            d: buildConnectionPath(
+                fromNode.position.x + sceneBounds.value.offsetX,
+                fromNode.position.y + sceneBounds.value.offsetY,
+                toNode.position.x + sceneBounds.value.offsetX,
+                toNode.position.y + sceneBounds.value.offsetY,
+                NODE_WIDTH,
+                NODE_HEIGHT,
+            ),
         }]
     })
 })
@@ -662,16 +682,16 @@ const miniMapConnectionPaths = computed<WorkflowConnectionPath[]>(() => {
             return []
         }
 
-        const startX = miniMapScene.value.x + ((fromNode.position.x + sceneBounds.value.offsetX + NODE_WIDTH) - navigationBounds.value.minX) * miniMapScale.value
-        const startY = miniMapScene.value.y + ((fromNode.position.y + sceneBounds.value.offsetY + NODE_HEIGHT / 2) - navigationBounds.value.minY) * miniMapScale.value
-        const endX = miniMapScene.value.x + ((toNode.position.x + sceneBounds.value.offsetX) - navigationBounds.value.minX) * miniMapScale.value
-        const endY = miniMapScene.value.y + ((toNode.position.y + sceneBounds.value.offsetY + NODE_HEIGHT / 2) - navigationBounds.value.minY) * miniMapScale.value
-        const cp1X = startX + (endX - startX) * 0.5
-        const cp2X = endX - (endX - startX) * 0.5
-
         return [{
             id: `${connection.from}-${connection.to}`,
-            d: `M${startX},${startY} C${cp1X},${startY} ${cp2X},${endY} ${endX},${endY}`,
+            d: buildConnectionPath(
+                miniMapScene.value.x + ((fromNode.position.x + sceneBounds.value.offsetX) - navigationBounds.value.minX) * miniMapScale.value,
+                miniMapScene.value.y + ((fromNode.position.y + sceneBounds.value.offsetY) - navigationBounds.value.minY) * miniMapScale.value,
+                miniMapScene.value.x + ((toNode.position.x + sceneBounds.value.offsetX) - navigationBounds.value.minX) * miniMapScale.value,
+                miniMapScene.value.y + ((toNode.position.y + sceneBounds.value.offsetY) - navigationBounds.value.minY) * miniMapScale.value,
+                NODE_WIDTH * miniMapScale.value,
+                NODE_HEIGHT * miniMapScale.value,
+            ),
         }]
     })
 })
