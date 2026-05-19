@@ -13,134 +13,202 @@
                 </span>
             </div>
 
-            <Button
-                variant="outline"
-                size="sm"
-                class="h-8 rounded-lg text-xs uppercase tracking-[0.2em] text-foreground/70 hover:text-foreground"
-                aria-label="Add new node"
-                @click="addNode"
-            >
-                <Plus class="size-3.5" aria-hidden="true" />
-                <span class="hidden sm:inline">Add Node</span>
-            </Button>
+            <div class="flex flex-wrap items-center gap-2">
+                <div class="flex items-center rounded-lg border border-border/40 bg-background/60 p-1 backdrop-blur">
+                    <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        class="size-7 rounded-md text-foreground/60 hover:text-foreground"
+                        aria-label="Zoom out"
+                        @click="zoomOut"
+                    >
+                        <Minus class="size-3.5" aria-hidden="true" />
+                    </Button>
+                    <span class="min-w-14 px-2 text-center text-[10px] font-medium uppercase tracking-[0.2em] text-foreground/50">
+                        {{ zoomPercentage }}
+                    </span>
+                    <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        class="size-7 rounded-md text-foreground/60 hover:text-foreground"
+                        aria-label="Zoom in"
+                        @click="zoomIn"
+                    >
+                        <Plus class="size-3.5" aria-hidden="true" />
+                    </Button>
+                    <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        class="size-7 rounded-md text-foreground/50 hover:text-foreground"
+                        aria-label="Reset zoom"
+                        @click="resetZoom"
+                    >
+                        <RotateCcw class="size-3.5" aria-hidden="true" />
+                    </Button>
+                </div>
+
+                <Button
+                    variant="outline"
+                    size="sm"
+                    class="h-8 rounded-lg text-xs uppercase tracking-[0.2em] text-foreground/70 hover:text-foreground"
+                    aria-label="Add new node"
+                    @click="addNode"
+                >
+                    <Plus class="size-3.5" aria-hidden="true" />
+                    <span class="hidden sm:inline">Add Node</span>
+                </Button>
+            </div>
         </div>
 
         <div
             ref="canvas"
-            class="relative h-[400px] w-full overflow-auto rounded-xl border border-border/30 bg-background/40 sm:h-[500px] md:h-[600px]"
+            :class="cn(
+                'relative h-[400px] w-full overflow-hidden rounded-xl border border-border/30 bg-background/40 sm:h-[500px] md:h-[600px]',
+                isPanning ? 'cursor-grabbing' : 'cursor-grab',
+            )"
             style="min-height: 400px;"
             role="region"
             aria-label="Workflow canvas"
             tabindex="0"
+            @pointerdown="startPanning"
         >
-            <div
-                class="relative"
-                :style="{
-                    minWidth: `${contentSize.width}px`,
-                    minHeight: `${contentSize.height}px`,
-                }"
-            >
-                <svg
-                    class="pointer-events-none absolute top-0 left-0"
-                    :width="contentSize.width"
-                    :height="contentSize.height"
-                    style="overflow: visible;"
-                    aria-hidden="true"
-                >
-                    <path
-                        v-for="path in connectionPaths"
-                        :key="path.id"
-                        :d="path.d"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                        stroke-dasharray="8,6"
-                        stroke-linecap="round"
-                        opacity="0.35"
-                        class="text-foreground"
-                    />
-                </svg>
-
-                <Motion
-                    v-for="node in nodes"
-                    :key="node.id"
-                    as="div"
-                    :style="getNodeStyle(node.position)"
-                    :initial="{ scale: 0.8, opacity: 0 }"
-                    :animate="{
-                        scale: draggingNodeId === node.id ? 1.05 : 1,
-                        opacity: 1,
+            <div class="absolute inset-0">
+                <div
+                    class="absolute top-0 left-0 origin-top-left"
+                    :style="{
+                        width: `${sceneBounds.width}px`,
+                        height: `${sceneBounds.height}px`,
+                        transform: `translate(${viewportPosition.x}px, ${viewportPosition.y}px) scale(${zoomScale})`,
                     }"
-                    :transition="{ duration: 0.2 }"
-                    :while-hover="draggingNodeId === node.id ? undefined : { scale: 1.02 }"
-                    :class="cn(
-                        'absolute select-none touch-none',
-                        draggingNodeId === node.id ? 'z-50 cursor-grabbing' : 'cursor-grab',
-                    )"
-                    :aria-grabbed="draggingNodeId === node.id"
-                    @pointerdown="startDragging(node.id, $event)"
                 >
-                    <Card
-                        :class="cn(
-                            'group/node relative w-full overflow-hidden rounded-xl bg-background/70 p-3 backdrop-blur transition-all hover:shadow-lg',
-                            colorClasses[node.color],
-                            draggingNodeId === node.id && 'shadow-xl ring-2 ring-primary/50',
-                        )"
-                        role="article"
-                        :aria-label="`${node.type} node: ${node.title}`"
+                    <svg
+                        class="pointer-events-none absolute top-0 left-0"
+                        :width="sceneBounds.width"
+                        :height="sceneBounds.height"
+                        style="overflow: visible;"
+                        aria-hidden="true"
                     >
-                        <div class="absolute inset-0 bg-gradient-to-br from-foreground/[0.04] via-transparent to-transparent opacity-0 transition-opacity duration-300 group-hover/node:opacity-100" />
+                        <path
+                            v-for="path in connectionPaths"
+                            :key="path.id"
+                            :d="path.d"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                            stroke-dasharray="8,6"
+                            stroke-linecap="round"
+                            opacity="0.35"
+                            class="text-foreground"
+                        />
+                    </svg>
 
-                        <div class="relative space-y-2">
-                            <div class="flex items-start gap-2">
-                                <div
-                                    :class="cn(
-                                        'flex size-8 shrink-0 items-center justify-center rounded-lg border bg-background/80 backdrop-blur',
-                                        colorClasses[node.color],
-                                    )"
-                                    aria-hidden="true"
-                                >
-                                    <component :is="node.icon" class="size-4" />
+                    <Motion
+                        v-for="node in nodes"
+                        :key="node.id"
+                        as="div"
+                        data-workflow-node
+                        :style="getNodeStyle(node.position)"
+                        :initial="{ scale: 0.8, opacity: 0 }"
+                        :animate="{
+                            scale: draggingNodeId === node.id ? 1.05 : 1,
+                            opacity: 1,
+                        }"
+                        :transition="{ duration: 0.2 }"
+                        :while-hover="draggingNodeId === node.id ? undefined : { scale: 1.02 }"
+                        :class="cn(
+                            'absolute select-none touch-none',
+                            draggingNodeId === node.id ? 'z-50 cursor-grabbing' : 'cursor-grab',
+                        )"
+                        :aria-grabbed="draggingNodeId === node.id"
+                        @pointerdown="startDragging(node.id, $event)"
+                    >
+                        <Card
+                            :class="cn(
+                                'group/node relative w-full overflow-hidden rounded-xl bg-background/70 p-3 backdrop-blur transition-all hover:shadow-lg',
+                                colorClasses[node.color],
+                                draggingNodeId === node.id && 'shadow-xl ring-2 ring-primary/50',
+                            )"
+                            role="article"
+                            :aria-label="`${node.type} node: ${node.title}`"
+                        >
+                            <div class="absolute inset-0 bg-gradient-to-br from-foreground/[0.04] via-transparent to-transparent opacity-0 transition-opacity duration-300 group-hover/node:opacity-100" />
+
+                            <div class="relative space-y-2">
+                                <div class="flex items-start gap-2">
+                                    <div
+                                        :class="cn(
+                                            'flex size-8 shrink-0 items-center justify-center rounded-lg border bg-background/80 backdrop-blur',
+                                            colorClasses[node.color],
+                                        )"
+                                        aria-hidden="true"
+                                    >
+                                        <component :is="node.icon" class="size-4" />
+                                    </div>
+
+                                    <div class="min-w-0 flex-1">
+                                        <Badge
+                                            variant="outline"
+                                            class="mb-0.5 rounded-full border-border/40 bg-background/80 px-1.5 py-0 text-[9px] uppercase tracking-[0.15em] text-foreground/60"
+                                        >
+                                            {{ node.type }}
+                                        </Badge>
+                                        <h3 class="truncate text-xs font-semibold tracking-tight text-foreground">
+                                            {{ node.title }}
+                                        </h3>
+                                    </div>
+
+                                    <div class="mt-0.5 flex shrink-0 items-center gap-1">
+                                        <Button
+                                            v-if="getParentConnection(node.id)"
+                                            variant="ghost"
+                                            size="icon-sm"
+                                            class="size-7 rounded-md text-foreground/50 hover:text-foreground"
+                                            aria-label="Add parallel flow"
+                                            @pointerdown.stop
+                                            @click.stop="addParallelNode(node.id)"
+                                        >
+                                            <Plus class="size-3.5" aria-hidden="true" />
+                                        </Button>
+
+                                        <Button
+                                            variant="ghost"
+                                            size="icon-sm"
+                                            class="size-7 rounded-md text-foreground/40 hover:text-destructive"
+                                            aria-label="Delete node"
+                                            @pointerdown.stop
+                                            @click.stop="removeNode(node.id)"
+                                        >
+                                            <Trash2 class="size-3.5" aria-hidden="true" />
+                                        </Button>
+                                    </div>
                                 </div>
 
-                                <div class="min-w-0 flex-1">
-                                    <Badge
-                                        variant="outline"
-                                        class="mb-0.5 rounded-full border-border/40 bg-background/80 px-1.5 py-0 text-[9px] uppercase tracking-[0.15em] text-foreground/60"
-                                    >
-                                        {{ node.type }}
-                                    </Badge>
-                                    <h3 class="truncate text-xs font-semibold tracking-tight text-foreground">
-                                        {{ node.title }}
-                                    </h3>
+                                <p class="line-clamp-2 text-[10px] leading-relaxed text-foreground/70">
+                                    {{ node.description }}
+                                </p>
+
+                                <div class="flex items-center gap-1.5 text-[10px] text-foreground/50">
+                                    <ArrowRight class="size-2.5" aria-hidden="true" />
+                                    <span class="uppercase tracking-[0.1em]">
+                                        Connected
+                                    </span>
                                 </div>
 
                                 <Button
-                                    v-if="getParentConnection(node.id)"
-                                    variant="ghost"
-                                    size="icon-sm"
-                                    class="mt-0.5 size-7 rounded-md text-foreground/50 hover:text-foreground"
-                                    aria-label="Add parallel flow"
+                                    variant="outline"
+                                    size="sm"
+                                    class="mt-2 h-7 w-full rounded-lg border-dashed text-[10px] uppercase tracking-[0.15em] text-foreground/60 hover:text-foreground"
+                                    aria-label="Add child node"
                                     @pointerdown.stop
-                                    @click.stop="addParallelNode(node.id)"
+                                    @click.stop="addChildNode(node.id)"
                                 >
-                                    <Plus class="size-3.5" aria-hidden="true" />
+                                    <ArrowDown class="size-3.5" aria-hidden="true" />
+                                    <span>Add Next</span>
                                 </Button>
                             </div>
-
-                            <p class="line-clamp-2 text-[10px] leading-relaxed text-foreground/70">
-                                {{ node.description }}
-                            </p>
-
-                            <div class="flex items-center gap-1.5 text-[10px] text-foreground/50">
-                                <ArrowRight class="size-2.5" aria-hidden="true" />
-                                <span class="uppercase tracking-[0.1em]">
-                                    Connected
-                                </span>
-                            </div>
-                        </div>
-                    </Card>
-                </Motion>
+                        </Card>
+                    </Motion>
+                </div>
             </div>
         </div>
 
@@ -167,7 +235,7 @@
             </div>
 
             <p class="text-[10px] uppercase tracking-[0.2em] text-foreground/40">
-                Drag nodes to reposition
+                Drag nodes or hold Ctrl/Cmd + scroll to zoom
             </p>
         </div>
     </div>
@@ -177,11 +245,15 @@
 import type { Component, HTMLAttributes } from 'vue'
 import { useEventListener } from '@vueuse/core'
 import {
+    ArrowDown,
     ArrowRight,
     Database,
     Mail,
+    Minus,
     Plus,
+    RotateCcw,
     Settings,
+    Trash2,
     Webhook,
     Zap,
 } from 'lucide-vue-next'
@@ -227,11 +299,22 @@ interface DragState {
     nodeStart: Position
 }
 
+interface PanState {
+    pointerId: number
+    pointerStart: Position
+    viewportStart: Position
+}
+
 type WorkflowNodeTemplate = Omit<WorkflowNode, 'id' | 'position'>
 
 const NODE_WIDTH = 200
-const NODE_HEIGHT = 100
+const NODE_HEIGHT = 180
+const NODE_HORIZONTAL_GAP = 50
+const NODE_VERTICAL_GAP = 40
 const CANVAS_PADDING = 50
+const MIN_ZOOM = 0.5
+const MAX_ZOOM = 1.75
+const ZOOM_STEP = 0.1
 
 const nodeTemplates: WorkflowNodeTemplate[] = [
     {
@@ -316,21 +399,33 @@ const colorClasses: Record<WorkflowNodeColor, HTMLAttributes['class']> = {
 
 const canvasRef = useTemplateRef<HTMLDivElement>('canvas')
 const dragState = shallowRef<DragState | null>(null)
+const panState = shallowRef<PanState | null>(null)
 const previousUserSelect = shallowRef('')
+const previousCanvasCursor = shallowRef('')
+const zoomScale = shallowRef(1)
+const viewportPosition = ref<Position>({ x: 120, y: 120 })
 
 const draggingNodeId = computed(() => dragState.value?.nodeId ?? null)
+const isPanning = computed(() => panState.value !== null)
+const zoomPercentage = computed(() => `${Math.round(zoomScale.value * 100)}%`)
 
 const nodeMap = computed(() => {
     return new Map(nodes.value.map(node => [node.id, node]))
 })
 
-const contentSize = computed(() => {
-    const maxX = Math.max(0, ...nodes.value.map(node => node.position.x + NODE_WIDTH))
-    const maxY = Math.max(0, ...nodes.value.map(node => node.position.y + NODE_HEIGHT))
+const sceneBounds = computed(() => {
+    const minX = Math.min(0, ...nodes.value.map(node => node.position.x)) - CANVAS_PADDING
+    const minY = Math.min(0, ...nodes.value.map(node => node.position.y)) - CANVAS_PADDING
+    const maxX = Math.max(0, ...nodes.value.map(node => node.position.x + NODE_WIDTH)) + CANVAS_PADDING
+    const maxY = Math.max(0, ...nodes.value.map(node => node.position.y + NODE_HEIGHT)) + CANVAS_PADDING
 
     return {
-        width: maxX + CANVAS_PADDING,
-        height: maxY + CANVAS_PADDING,
+        minX,
+        minY,
+        width: maxX - minX,
+        height: maxY - minY,
+        offsetX: -minX,
+        offsetY: -minY,
     }
 })
 
@@ -343,10 +438,10 @@ const connectionPaths = computed<WorkflowConnectionPath[]>(() => {
             return []
         }
 
-        const startX = fromNode.position.x + NODE_WIDTH
-        const startY = fromNode.position.y + NODE_HEIGHT / 2
-        const endX = toNode.position.x
-        const endY = toNode.position.y + NODE_HEIGHT / 2
+        const startX = fromNode.position.x + sceneBounds.value.offsetX + NODE_WIDTH
+        const startY = fromNode.position.y + sceneBounds.value.offsetY + NODE_HEIGHT / 2
+        const endX = toNode.position.x + sceneBounds.value.offsetX
+        const endY = toNode.position.y + sceneBounds.value.offsetY + NODE_HEIGHT / 2
         const cp1X = startX + (endX - startX) * 0.5
         const cp2X = endX - (endX - startX) * 0.5
 
@@ -366,6 +461,148 @@ function getSiblingNodes(parentId: string) {
         .filter(connection => connection.from === parentId)
         .map(connection => nodeMap.value.get(connection.to))
         .filter((node): node is WorkflowNode => Boolean(node))
+}
+
+function getChildNodes(nodeId: string) {
+    return getSiblingNodes(nodeId)
+}
+
+function collectBranchNodeIds(nodeId: string) {
+    const branchNodeIds = new Set<string>([nodeId])
+    const queue = [nodeId]
+
+    while (queue.length > 0) {
+        const currentNodeId = queue.shift()
+
+        if (!currentNodeId) {
+            continue
+        }
+
+        const childConnections = connections.value.filter(connection => connection.from === currentNodeId)
+
+        for (const connection of childConnections) {
+            if (branchNodeIds.has(connection.to)) {
+                continue
+            }
+
+            branchNodeIds.add(connection.to)
+            queue.push(connection.to)
+        }
+    }
+
+    return branchNodeIds
+}
+
+function clampZoom(value: number) {
+    return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Number(value.toFixed(2))))
+}
+
+function getViewportCenter() {
+    const canvas = canvasRef.value
+
+    if (!canvas) {
+        return null
+    }
+
+    const rect = canvas.getBoundingClientRect()
+
+    return {
+        clientX: rect.left + rect.width / 2,
+        clientY: rect.top + rect.height / 2,
+    }
+}
+
+function setZoom(nextZoom: number, focusPoint?: { clientX: number, clientY: number }) {
+    const canvas = canvasRef.value
+    const clampedZoom = clampZoom(nextZoom)
+
+    if (clampedZoom === zoomScale.value) {
+        return
+    }
+
+    if (!canvas || !focusPoint) {
+        zoomScale.value = clampedZoom
+        return
+    }
+
+    const rect = canvas.getBoundingClientRect()
+    const offsetX = focusPoint.clientX - rect.left
+    const offsetY = focusPoint.clientY - rect.top
+    const worldX = (offsetX - viewportPosition.value.x) / zoomScale.value
+    const worldY = (offsetY - viewportPosition.value.y) / zoomScale.value
+
+    zoomScale.value = clampedZoom
+
+    nextTick(() => {
+        viewportPosition.value = {
+            x: offsetX - worldX * clampedZoom,
+            y: offsetY - worldY * clampedZoom,
+        }
+    })
+}
+
+function zoomIn() {
+    setZoom(zoomScale.value + ZOOM_STEP, getViewportCenter() ?? undefined)
+}
+
+function zoomOut() {
+    setZoom(zoomScale.value - ZOOM_STEP, getViewportCenter() ?? undefined)
+}
+
+function resetZoom() {
+    setZoom(1, getViewportCenter() ?? undefined)
+}
+
+function handleCanvasWheel(event: WheelEvent) {
+    event.preventDefault()
+
+    if (!event.ctrlKey && !event.metaKey) {
+        viewportPosition.value = {
+            x: viewportPosition.value.x - event.deltaX,
+            y: viewportPosition.value.y - event.deltaY,
+        }
+        return
+    }
+
+    event.preventDefault()
+
+    const nextZoom = event.deltaY < 0
+        ? zoomScale.value + ZOOM_STEP
+        : zoomScale.value - ZOOM_STEP
+
+    setZoom(nextZoom, {
+        clientX: event.clientX,
+        clientY: event.clientY,
+    })
+}
+
+function startPanning(event: PointerEvent) {
+    if (event.button !== 0) {
+        return
+    }
+
+    const target = event.target as HTMLElement | null
+
+    if (target?.closest('[data-workflow-node]')) {
+        return
+    }
+
+    event.preventDefault()
+
+    previousUserSelect.value = document.body.style.userSelect
+    previousCanvasCursor.value = canvasRef.value?.style.cursor ?? ''
+    document.body.style.userSelect = 'none'
+
+    if (canvasRef.value) {
+        canvasRef.value.style.cursor = 'grabbing'
+        canvasRef.value.setPointerCapture?.(event.pointerId)
+    }
+
+    panState.value = {
+        pointerId: event.pointerId,
+        pointerStart: { x: event.clientX, y: event.clientY },
+        viewportStart: { ...viewportPosition.value },
+    }
 }
 
 function startDragging(nodeId: string, event: PointerEvent) {
@@ -412,8 +649,21 @@ function updateDragging(event: PointerEvent) {
     const offsetX = event.clientX - activeDrag.pointerStart.x
     const offsetY = event.clientY - activeDrag.pointerStart.y
 
-    node.position.x = Math.max(0, activeDrag.nodeStart.x + offsetX)
-    node.position.y = Math.max(0, activeDrag.nodeStart.y + offsetY)
+    node.position.x = activeDrag.nodeStart.x + offsetX / zoomScale.value
+    node.position.y = activeDrag.nodeStart.y + offsetY / zoomScale.value
+}
+
+function updatePanning(event: PointerEvent) {
+    const activePan = panState.value
+
+    if (!activePan || event.pointerId !== activePan.pointerId) {
+        return
+    }
+
+    viewportPosition.value = {
+        x: activePan.viewportStart.x + (event.clientX - activePan.pointerStart.x),
+        y: activePan.viewportStart.y + (event.clientY - activePan.pointerStart.y),
+    }
 }
 
 function stopDragging(pointerId?: number) {
@@ -425,29 +675,40 @@ function stopDragging(pointerId?: number) {
     document.body.style.userSelect = previousUserSelect.value
 }
 
+function stopPanning(pointerId?: number) {
+    if (pointerId !== undefined && panState.value && panState.value.pointerId !== pointerId) {
+        return
+    }
+
+    panState.value = null
+    document.body.style.userSelect = previousUserSelect.value
+
+    if (canvasRef.value) {
+        canvasRef.value.style.cursor = previousCanvasCursor.value
+    }
+}
+
 async function addNode() {
-    const template = nodeTemplates[Math.floor(Math.random() * nodeTemplates.length)]!
     const lastNode = nodes.value.at(-1)
-    const position = lastNode
-        ? { x: lastNode.position.x + 250, y: lastNode.position.y }
-        : { x: 50, y: 100 }
 
-    const newNode: WorkflowNode = {
-        id: `node-${Date.now()}`,
-        ...template,
-        position,
-    }
+    if (!lastNode) {
+        const template = nodeTemplates[Math.floor(Math.random() * nodeTemplates.length)]!
+        const position = { x: 50, y: 100 }
 
-    nodes.value = [...nodes.value, newNode]
-
-    if (lastNode) {
-        connections.value = [
-            ...connections.value,
-            { from: lastNode.id, to: newNode.id },
+        nodes.value = [
+            ...nodes.value,
+            {
+                id: `node-${Date.now()}`,
+                ...template,
+                position,
+            },
         ]
+
+        await scrollToNode(position)
+        return
     }
 
-    await scrollToNode(position)
+    await addChildNode(lastNode.id)
 }
 
 async function addParallelNode(nodeId: string) {
@@ -468,7 +729,7 @@ async function addParallelNode(nodeId: string) {
     const maxSiblingY = Math.max(...siblingNodes.map(node => node.position.y))
     const position = {
         x: anchorNode.position.x,
-        y: maxSiblingY + NODE_HEIGHT + 50,
+        y: maxSiblingY + NODE_HEIGHT + NODE_VERTICAL_GAP,
     }
 
     const newNode: WorkflowNode = {
@@ -486,6 +747,53 @@ async function addParallelNode(nodeId: string) {
     await scrollToNode(position)
 }
 
+async function addChildNode(nodeId: string) {
+    const parentNode = nodeMap.value.get(nodeId)
+
+    if (!parentNode) {
+        return
+    }
+
+    const template = nodeTemplates[Math.floor(Math.random() * nodeTemplates.length)]!
+    const childNodes = getChildNodes(nodeId)
+    const position = childNodes.length === 0
+        ? {
+                x: parentNode.position.x + NODE_WIDTH + NODE_HORIZONTAL_GAP,
+                y: parentNode.position.y,
+            }
+        : {
+                x: Math.max(parentNode.position.x + NODE_WIDTH + NODE_HORIZONTAL_GAP, ...childNodes.map(node => node.position.x)),
+                y: Math.max(...childNodes.map(node => node.position.y)) + NODE_HEIGHT + NODE_VERTICAL_GAP,
+            }
+
+    const newNode: WorkflowNode = {
+        id: `node-${Date.now()}`,
+        ...template,
+        position,
+    }
+
+    nodes.value = [...nodes.value, newNode]
+    connections.value = [
+        ...connections.value,
+        { from: nodeId, to: newNode.id },
+    ]
+
+    await scrollToNode(position)
+}
+
+function removeNode(nodeId: string) {
+    const branchNodeIds = collectBranchNodeIds(nodeId)
+
+    if (draggingNodeId.value && branchNodeIds.has(draggingNodeId.value)) {
+        stopDragging()
+    }
+
+    nodes.value = nodes.value.filter(node => !branchNodeIds.has(node.id))
+    connections.value = connections.value.filter((connection) => {
+        return !branchNodeIds.has(connection.from) && !branchNodeIds.has(connection.to)
+    })
+}
+
 async function scrollToNode(position: Position) {
     await nextTick()
 
@@ -495,17 +803,41 @@ async function scrollToNode(position: Position) {
         return
     }
 
-    canvas.scrollTo({
-        left: Math.max(0, position.x + NODE_WIDTH - canvas.clientWidth + 100),
-        top: Math.max(0, position.y + NODE_HEIGHT - canvas.clientHeight + 100),
-        behavior: 'smooth',
-    })
+    const margin = 100
+    const localX = position.x + sceneBounds.value.offsetX
+    const localY = position.y + sceneBounds.value.offsetY
+    const screenLeft = viewportPosition.value.x + localX * zoomScale.value
+    const screenTop = viewportPosition.value.y + localY * zoomScale.value
+    const screenRight = screenLeft + NODE_WIDTH * zoomScale.value
+    const screenBottom = screenTop + NODE_HEIGHT * zoomScale.value
+
+    let nextViewportX = viewportPosition.value.x
+    let nextViewportY = viewportPosition.value.y
+
+    if (screenLeft < margin) {
+        nextViewportX += margin - screenLeft
+    }
+    else if (screenRight > canvas.clientWidth - margin) {
+        nextViewportX -= screenRight - (canvas.clientWidth - margin)
+    }
+
+    if (screenTop < margin) {
+        nextViewportY += margin - screenTop
+    }
+    else if (screenBottom > canvas.clientHeight - margin) {
+        nextViewportY -= screenBottom - (canvas.clientHeight - margin)
+    }
+
+    viewportPosition.value = {
+        x: nextViewportX,
+        y: nextViewportY,
+    }
 }
 
 function getNodeStyle(position: Position) {
     return {
-        left: `${position.x}px`,
-        top: `${position.y}px`,
+        left: `${position.x + sceneBounds.value.offsetX}px`,
+        top: `${position.y + sceneBounds.value.offsetY}px`,
         width: `${NODE_WIDTH}px`,
         transformOrigin: '0 0',
     }
@@ -513,9 +845,16 @@ function getNodeStyle(position: Position) {
 
 if (import.meta.client) {
     useEventListener(window, 'pointermove', updateDragging)
+    useEventListener(window, 'pointermove', updatePanning)
     useEventListener(window, 'pointerup', event => stopDragging(event.pointerId))
+    useEventListener(window, 'pointerup', event => stopPanning(event.pointerId))
     useEventListener(window, 'pointercancel', event => stopDragging(event.pointerId))
+    useEventListener(window, 'pointercancel', event => stopPanning(event.pointerId))
+    useEventListener(canvasRef, 'wheel', handleCanvasWheel, { passive: false })
 }
 
-onUnmounted(() => stopDragging())
+onUnmounted(() => {
+    stopDragging()
+    stopPanning()
+})
 </script>
