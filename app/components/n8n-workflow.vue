@@ -106,24 +106,36 @@
                     :style="sceneTransformStyle"
                 >
                     <svg
-                        class="pointer-events-none absolute top-0 left-0"
+                        class="absolute top-0 left-0"
                         :width="sceneBounds.width"
                         :height="sceneBounds.height"
                         style="overflow: visible;"
                         aria-hidden="true"
                     >
-                        <path
+                        <g
                             v-for="path in connectionPaths"
                             :key="path.id"
-                            :d="path.d"
-                            fill="none"
-                            stroke="currentColor"
-                            :stroke-width="CONNECTION_STROKE_WIDTH"
-                            :stroke-dasharray="connectionDashArray"
-                            stroke-linecap="round"
-                            opacity="0.35"
-                            class="text-foreground"
-                        />
+                        >
+                            <path
+                                :d="path.d"
+                                fill="none"
+                                stroke="currentColor"
+                                :stroke-width="CONNECTION_STROKE_WIDTH"
+                                :stroke-dasharray="connectionDashArray"
+                                stroke-linecap="round"
+                                opacity="0.35"
+                                class="pointer-events-none text-foreground"
+                            />
+                            <path
+                                :d="path.d"
+                                fill="none"
+                                stroke="transparent"
+                                stroke-width="14"
+                                class="cursor-pointer"
+                                @pointerdown.stop
+                                @click.stop="removeConnection(path.from, path.to)"
+                            />
+                        </g>
                         <path
                             v-if="activeConnectionPreviewPath"
                             :d="activeConnectionPreviewPath"
@@ -167,13 +179,22 @@
                         >
                             <div class="absolute inset-0 bg-gradient-to-br from-foreground/[0.04] via-transparent to-transparent opacity-0 transition-opacity duration-300 group-hover/node:opacity-100" />
                             <button
-                                v-if="getParentConnection(node.id)"
                                 type="button"
-                                class="absolute top-1/2 -left-2 z-10 flex size-4 -translate-y-1/2 items-center justify-center rounded-full border border-blue-400/60 bg-background/95 shadow-sm transition-transform hover:scale-110"
-                                aria-label="Reconnect incoming edge"
-                                @pointerdown="startConnectionDrag(node.id, 'retarget', $event)"
+                                :class="cn(
+                                    'absolute top-1/2 -left-2 z-10 flex size-4 -translate-y-1/2 items-center justify-center rounded-full bg-background/95 shadow-sm transition-transform hover:scale-110',
+                                    getParentConnection(node.id)
+                                        ? 'border border-blue-400/60'
+                                        : 'border border-slate-400/50',
+                                )"
+                                :aria-label="getParentConnection(node.id) ? 'Reconnect incoming edge' : 'Attach incoming edge'"
+                                @pointerdown="startIncomingConnection(node.id, $event)"
                             >
-                                <span class="block size-1.5 rounded-full bg-blue-500/90" />
+                                <span
+                                    :class="cn(
+                                        'block size-1.5 rounded-full',
+                                        getParentConnection(node.id) ? 'bg-blue-500/90' : 'bg-slate-500/80',
+                                    )"
+                                />
                             </button>
                             <button
                                 type="button"
@@ -414,6 +435,8 @@ interface WorkflowConnection {
 interface WorkflowConnectionPath {
     id: string
     d: string
+    from: string
+    to: string
 }
 
 interface DragState {
@@ -437,8 +460,9 @@ interface MiniMapDragState {
 
 interface ConnectionDragState {
     pointerId: number
-    mode: 'create' | 'retarget'
-    sourceNodeId: string
+    mode: 'create' | 'retarget' | 'attach'
+    sourceNodeId?: string
+    targetNodeId?: string
     originalTargetNodeId?: string
     currentWorldPoint: Position
 }
@@ -713,7 +737,30 @@ const activeConnectionPreviewPath = computed(() => {
         return null
     }
 
-    const sourceNode = nodeMap.value.get(activeConnectionDrag.sourceNodeId)
+    if (activeConnectionDrag.mode === 'attach') {
+        const targetNode = activeConnectionDrag.targetNodeId
+            ? nodeMap.value.get(activeConnectionDrag.targetNodeId)
+            : null
+
+        if (!targetNode) {
+            return null
+        }
+
+        const startX = activeConnectionDrag.currentWorldPoint.x + sceneBounds.value.offsetX
+        const startY = activeConnectionDrag.currentWorldPoint.y + sceneBounds.value.offsetY
+        const endX = targetNode.position.x + sceneBounds.value.offsetX + (
+            activeConnectionDrag.currentWorldPoint.x <= targetNode.position.x
+                ? 0
+                : NODE_WIDTH
+        )
+        const endY = targetNode.position.y + sceneBounds.value.offsetY + NODE_HEIGHT / 2
+
+        return buildCurvePath(startX, startY, endX, endY)
+    }
+
+    const sourceNode = activeConnectionDrag.sourceNodeId
+        ? nodeMap.value.get(activeConnectionDrag.sourceNodeId)
+        : null
 
     if (!sourceNode) {
         return null
@@ -742,6 +789,8 @@ const connectionPaths = computed<WorkflowConnectionPath[]>(() => {
 
         return [{
             id: `${connection.from}-${connection.to}`,
+            from: connection.from,
+            to: connection.to,
             d: buildConnectionPath(
                 fromNode.position.x + sceneBounds.value.offsetX,
                 fromNode.position.y + sceneBounds.value.offsetY,
@@ -765,6 +814,8 @@ const miniMapConnectionPaths = computed<WorkflowConnectionPath[]>(() => {
 
         return [{
             id: `${connection.from}-${connection.to}`,
+            from: connection.from,
+            to: connection.to,
             d: buildConnectionPath(
                 miniMapScene.value.x + ((fromNode.position.x + sceneBounds.value.offsetX) - navigationBounds.value.minX) * miniMapScale.value,
                 miniMapScene.value.y + ((fromNode.position.y + sceneBounds.value.offsetY) - navigationBounds.value.minY) * miniMapScale.value,
@@ -900,6 +951,32 @@ function startConnectionDrag(nodeId: string, mode: 'create' | 'retarget', event:
         sourceNodeId,
         originalTargetNodeId: mode === 'retarget' ? nodeId : undefined,
         currentWorldPoint: worldPoint,
+    }
+
+    const target = event.currentTarget as HTMLElement | null
+    target?.setPointerCapture?.(event.pointerId)
+}
+
+function startIncomingConnection(nodeId: string, event: PointerEvent) {
+    const parentConnection = getParentConnection(nodeId)
+
+    if (parentConnection) {
+        startConnectionDrag(nodeId, 'retarget', event)
+        return
+    }
+
+    if (event.button !== 0) {
+        return
+    }
+
+    event.preventDefault()
+    event.stopPropagation()
+
+    connectionDragState.value = {
+        pointerId: event.pointerId,
+        mode: 'attach',
+        targetNodeId: nodeId,
+        currentWorldPoint: getCanvasWorldPoint(event.clientX, event.clientY),
     }
 
     const target = event.currentTarget as HTMLElement | null
@@ -1255,9 +1332,23 @@ function stopConnectionDragging(pointerId?: number, event?: PointerEvent) {
     if (event) {
         const targetNodeId = getNodeIdFromPointer(event.clientX, event.clientY)
 
-        if (
+        if (activeConnectionDrag.mode === 'attach') {
+            if (
+                targetNodeId
+                && targetNodeId !== activeConnectionDrag.targetNodeId
+                && activeConnectionDrag.targetNodeId
+                && !hasConnection(targetNodeId, activeConnectionDrag.targetNodeId)
+            ) {
+                connections.value = [
+                    ...connections.value,
+                    { from: targetNodeId, to: activeConnectionDrag.targetNodeId },
+                ]
+            }
+        }
+        else if (
             targetNodeId
             && targetNodeId !== activeConnectionDrag.sourceNodeId
+            && activeConnectionDrag.sourceNodeId
             && (
                 activeConnectionDrag.mode !== 'retarget'
                 || targetNodeId !== activeConnectionDrag.originalTargetNodeId
@@ -1394,6 +1485,20 @@ function removeNode(nodeId: string) {
     connections.value = connections.value.filter((connection) => {
         return !branchNodeIds.has(connection.from) && !branchNodeIds.has(connection.to)
     })
+}
+
+function removeConnection(fromNodeId: string, toNodeId: string) {
+    if (
+        connectionDragState.value
+        && connectionDragState.value.sourceNodeId === fromNodeId
+        && connectionDragState.value.originalTargetNodeId === toNodeId
+    ) {
+        stopConnectionDragging()
+    }
+
+    connections.value = connections.value.filter(connection => (
+        connection.from !== fromNodeId || connection.to !== toNodeId
+    ))
 }
 
 async function scrollToNode(position: Position) {
