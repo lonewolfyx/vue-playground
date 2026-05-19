@@ -124,6 +124,15 @@
                             opacity="0.35"
                             class="text-foreground"
                         />
+                        <path
+                            v-if="activeConnectionPreviewPath"
+                            :d="activeConnectionPreviewPath"
+                            fill="none"
+                            stroke="rgb(59 130 246 / 0.9)"
+                            stroke-width="1.6"
+                            stroke-dasharray="6,6"
+                            stroke-linecap="round"
+                        />
                     </svg>
 
                     <Motion
@@ -131,6 +140,7 @@
                         :key="node.id"
                         as="div"
                         data-workflow-node
+                        :data-workflow-node-id="node.id"
                         :style="getNodeStyle(node.position)"
                         :initial="{ scale: 0.8, opacity: 0 }"
                         :animate="{
@@ -148,7 +158,7 @@
                     >
                         <Card
                             :class="cn(
-                                'group/node relative w-full overflow-hidden rounded-xl bg-background/70 p-3 backdrop-blur transition-all hover:shadow-lg',
+                                'group/node relative h-full w-full overflow-hidden rounded-xl bg-background/70 p-3 backdrop-blur transition-all hover:shadow-lg',
                                 colorClasses[node.color],
                                 draggingNodeId === node.id && 'shadow-xl ring-2 ring-primary/50',
                             )"
@@ -156,6 +166,23 @@
                             :aria-label="`${node.type} node: ${node.title}`"
                         >
                             <div class="absolute inset-0 bg-gradient-to-br from-foreground/[0.04] via-transparent to-transparent opacity-0 transition-opacity duration-300 group-hover/node:opacity-100" />
+                            <button
+                                v-if="getParentConnection(node.id)"
+                                type="button"
+                                class="absolute top-1/2 -left-2 z-10 flex size-4 -translate-y-1/2 items-center justify-center rounded-full border border-blue-400/60 bg-background/95 shadow-sm transition-transform hover:scale-110"
+                                aria-label="Reconnect incoming edge"
+                                @pointerdown="startConnectionDrag(node.id, 'retarget', $event)"
+                            >
+                                <span class="block size-1.5 rounded-full bg-blue-500/90" />
+                            </button>
+                            <button
+                                type="button"
+                                class="absolute top-1/2 -right-2 z-10 flex size-4 -translate-y-1/2 items-center justify-center rounded-full border border-emerald-400/60 bg-background/95 shadow-sm transition-transform hover:scale-110"
+                                aria-label="Create outgoing edge"
+                                @pointerdown="startConnectionDrag(node.id, 'create', $event)"
+                            >
+                                <span class="block size-1.5 rounded-full bg-emerald-500/90" />
+                            </button>
 
                             <div class="relative space-y-2">
                                 <div class="flex items-start gap-2">
@@ -408,6 +435,14 @@ interface MiniMapDragState {
     grabOffset: Position
 }
 
+interface ConnectionDragState {
+    pointerId: number
+    mode: 'create' | 'retarget'
+    sourceNodeId: string
+    originalTargetNodeId?: string
+    currentWorldPoint: Position
+}
+
 type WorkflowNodeTemplate = Omit<WorkflowNode, 'id' | 'position'>
 
 const NODE_WIDTH = 200
@@ -520,6 +555,7 @@ const miniMapRef = useTemplateRef<HTMLDivElement>('miniMap')
 const dragState = shallowRef<DragState | null>(null)
 const panState = shallowRef<PanState | null>(null)
 const miniMapDragState = shallowRef<MiniMapDragState | null>(null)
+const connectionDragState = shallowRef<ConnectionDragState | null>(null)
 const hasAutoCenteredViewport = shallowRef(false)
 const previousUserSelect = shallowRef('')
 const previousCanvasCursor = shallowRef('')
@@ -550,6 +586,15 @@ function buildConnectionPath(
     const endX = toX + (direction === 1 ? 0 : nodeWidth)
     const endY = toY + nodeHeight / 2
     const handleOffset = Math.max(nodeWidth * 0.3, Math.abs(endX - startX) * 0.5)
+    const cp1X = startX + direction * handleOffset
+    const cp2X = endX - direction * handleOffset
+
+    return `M${startX},${startY} C${cp1X},${startY} ${cp2X},${endY} ${endX},${endY}`
+}
+
+function buildCurvePath(startX: number, startY: number, endX: number, endY: number) {
+    const direction = endX >= startX ? 1 : -1
+    const handleOffset = Math.max(NODE_WIDTH * 0.3, Math.abs(endX - startX) * 0.5)
     const cp1X = startX + direction * handleOffset
     const cp2X = endX - direction * handleOffset
 
@@ -661,6 +706,31 @@ const miniMapViewport = computed(() => {
     }
 })
 
+const activeConnectionPreviewPath = computed(() => {
+    const activeConnectionDrag = connectionDragState.value
+
+    if (!activeConnectionDrag) {
+        return null
+    }
+
+    const sourceNode = nodeMap.value.get(activeConnectionDrag.sourceNodeId)
+
+    if (!sourceNode) {
+        return null
+    }
+
+    const startX = sourceNode.position.x + sceneBounds.value.offsetX + (
+        activeConnectionDrag.currentWorldPoint.x >= sourceNode.position.x
+            ? NODE_WIDTH
+            : 0
+    )
+    const startY = sourceNode.position.y + sceneBounds.value.offsetY + NODE_HEIGHT / 2
+    const endX = activeConnectionDrag.currentWorldPoint.x + sceneBounds.value.offsetX
+    const endY = activeConnectionDrag.currentWorldPoint.y + sceneBounds.value.offsetY
+
+    return buildCurvePath(startX, startY, endX, endY)
+})
+
 const connectionPaths = computed<WorkflowConnectionPath[]>(() => {
     return connections.value.flatMap((connection) => {
         const fromNode = nodeMap.value.get(connection.from)
@@ -736,6 +806,40 @@ function getParentConnection(nodeId: string) {
     return connections.value.find(connection => connection.to === nodeId) ?? null
 }
 
+function getCanvasWorldPoint(clientX: number, clientY: number) {
+    const canvas = canvasRef.value
+
+    if (!canvas) {
+        return { x: 0, y: 0 }
+    }
+
+    const rect = canvas.getBoundingClientRect()
+
+    return {
+        x: (clientX - rect.left - viewportPosition.value.x) / zoomScale.value,
+        y: (clientY - rect.top - viewportPosition.value.y) / zoomScale.value,
+    }
+}
+
+function getNodeIdFromPointer(clientX: number, clientY: number) {
+    if (!import.meta.client) {
+        return null
+    }
+
+    const element = document.elementFromPoint(clientX, clientY) as HTMLElement | null
+    const nodeElement = element?.closest<HTMLElement>('[data-workflow-node-id]')
+
+    return nodeElement?.dataset.workflowNodeId ?? null
+}
+
+function hasConnection(fromNodeId: string, toNodeId: string, ignoredTargetNodeId?: string) {
+    return connections.value.some(connection => (
+        connection.from === fromNodeId
+        && connection.to === toNodeId
+        && connection.to !== ignoredTargetNodeId
+    ))
+}
+
 function getSiblingNodes(parentId: string) {
     return connections.value
         .filter(connection => connection.from === parentId)
@@ -771,6 +875,35 @@ function collectBranchNodeIds(nodeId: string) {
     }
 
     return branchNodeIds
+}
+
+function startConnectionDrag(nodeId: string, mode: 'create' | 'retarget', event: PointerEvent) {
+    if (event.button !== 0) {
+        return
+    }
+
+    if (mode === 'retarget' && !getParentConnection(nodeId)) {
+        return
+    }
+
+    event.preventDefault()
+    event.stopPropagation()
+
+    const worldPoint = getCanvasWorldPoint(event.clientX, event.clientY)
+    const sourceNodeId = mode === 'retarget'
+        ? getParentConnection(nodeId)?.from ?? nodeId
+        : nodeId
+
+    connectionDragState.value = {
+        pointerId: event.pointerId,
+        mode,
+        sourceNodeId,
+        originalTargetNodeId: mode === 'retarget' ? nodeId : undefined,
+        currentWorldPoint: worldPoint,
+    }
+
+    const target = event.currentTarget as HTMLElement | null
+    target?.setPointerCapture?.(event.pointerId)
 }
 
 async function copyWorkflowData() {
@@ -1067,6 +1200,17 @@ function updateMiniMapDragging(event: PointerEvent) {
     updateViewportFromMiniMapEvent(event)
 }
 
+function updateConnectionDragging(event: PointerEvent) {
+    if (!connectionDragState.value || event.pointerId !== connectionDragState.value.pointerId) {
+        return
+    }
+
+    connectionDragState.value = {
+        ...connectionDragState.value,
+        currentWorldPoint: getCanvasWorldPoint(event.clientX, event.clientY),
+    }
+}
+
 function stopDragging(pointerId?: number) {
     if (pointerId !== undefined && dragState.value && dragState.value.pointerId !== pointerId) {
         return
@@ -1095,6 +1239,55 @@ function stopMiniMapDragging(pointerId?: number) {
     }
 
     miniMapDragState.value = null
+}
+
+function stopConnectionDragging(pointerId?: number, event?: PointerEvent) {
+    const activeConnectionDrag = connectionDragState.value
+
+    if (!activeConnectionDrag) {
+        return
+    }
+
+    if (pointerId !== undefined && activeConnectionDrag.pointerId !== pointerId) {
+        return
+    }
+
+    if (event) {
+        const targetNodeId = getNodeIdFromPointer(event.clientX, event.clientY)
+
+        if (
+            targetNodeId
+            && targetNodeId !== activeConnectionDrag.sourceNodeId
+            && (
+                activeConnectionDrag.mode !== 'retarget'
+                || targetNodeId !== activeConnectionDrag.originalTargetNodeId
+            )
+            && !hasConnection(
+                activeConnectionDrag.sourceNodeId,
+                targetNodeId,
+                activeConnectionDrag.mode === 'retarget'
+                    ? activeConnectionDrag.originalTargetNodeId
+                    : undefined,
+            )
+        ) {
+            if (activeConnectionDrag.mode === 'create') {
+                connections.value = [
+                    ...connections.value,
+                    { from: activeConnectionDrag.sourceNodeId, to: targetNodeId },
+                ]
+            }
+            else if (activeConnectionDrag.originalTargetNodeId) {
+                connections.value = connections.value.map(connection => (
+                    connection.from === activeConnectionDrag.sourceNodeId
+                    && connection.to === activeConnectionDrag.originalTargetNodeId
+                        ? { ...connection, to: targetNodeId }
+                        : connection
+                ))
+            }
+        }
+    }
+
+    connectionDragState.value = null
 }
 
 async function addNode() {
@@ -1246,6 +1439,7 @@ function getNodeStyle(position: Position) {
         left: `${position.x + sceneBounds.value.offsetX}px`,
         top: `${position.y + sceneBounds.value.offsetY}px`,
         width: `${NODE_WIDTH}px`,
+        height: `${NODE_HEIGHT}px`,
         transformOrigin: '0 0',
     }
 }
@@ -1254,12 +1448,15 @@ if (import.meta.client) {
     useEventListener(window, 'pointermove', updateDragging)
     useEventListener(window, 'pointermove', updatePanning)
     useEventListener(window, 'pointermove', updateMiniMapDragging)
+    useEventListener(window, 'pointermove', updateConnectionDragging)
     useEventListener(window, 'pointerup', event => stopDragging(event.pointerId))
     useEventListener(window, 'pointerup', event => stopPanning(event.pointerId))
     useEventListener(window, 'pointerup', event => stopMiniMapDragging(event.pointerId))
+    useEventListener(window, 'pointerup', event => stopConnectionDragging(event.pointerId, event))
     useEventListener(window, 'pointercancel', event => stopDragging(event.pointerId))
     useEventListener(window, 'pointercancel', event => stopPanning(event.pointerId))
     useEventListener(window, 'pointercancel', event => stopMiniMapDragging(event.pointerId))
+    useEventListener(window, 'pointercancel', event => stopConnectionDragging(event.pointerId))
     useEventListener(canvasRef, 'wheel', handleCanvasWheel, { passive: false })
 }
 
@@ -1280,5 +1477,6 @@ onUnmounted(() => {
     stopDragging()
     stopPanning()
     stopMiniMapDragging()
+    stopConnectionDragging()
 })
 </script>
