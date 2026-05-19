@@ -51,6 +51,17 @@
                     variant="outline"
                     size="sm"
                     class="h-8 rounded-lg text-xs uppercase tracking-[0.2em] text-foreground/70 hover:text-foreground"
+                    aria-label="Copy workflow data"
+                    @click="copyWorkflowData"
+                >
+                    <Copy class="size-3.5" aria-hidden="true" />
+                    <span class="hidden sm:inline">Copy Data</span>
+                </Button>
+
+                <Button
+                    variant="outline"
+                    size="sm"
+                    class="h-8 rounded-lg text-xs uppercase tracking-[0.2em] text-foreground/70 hover:text-foreground"
                     aria-label="Add new node"
                     @click="addNode"
                 >
@@ -317,10 +328,11 @@
 
 <script setup lang="ts">
 import type { Component, HTMLAttributes } from 'vue'
-import { useElementSize, useEventListener } from '@vueuse/core'
+import { useClipboard, useElementSize, useEventListener } from '@vueuse/core'
 import {
     ArrowDown,
     ArrowRight,
+    Copy,
     Database,
     Mail,
     Minus,
@@ -503,6 +515,7 @@ const previousCanvasCursor = shallowRef('')
 const zoomScale = shallowRef(1)
 const viewportPosition = ref<Position>({ x: 120, y: 120 })
 const { width: canvasWidth, height: canvasHeight } = useElementSize(canvasRef)
+const { copy } = useClipboard()
 
 const draggingNodeId = computed(() => dragState.value?.nodeId ?? null)
 const isPanning = computed(() => panState.value !== null)
@@ -727,6 +740,22 @@ function collectBranchNodeIds(nodeId: string) {
     }
 
     return branchNodeIds
+}
+
+async function copyWorkflowData() {
+    const payload = JSON.stringify({
+        nodes: nodes.value.map(node => ({
+            id: node.id,
+            type: node.type,
+            title: node.title,
+            description: node.description,
+            color: node.color,
+            position: node.position,
+        })),
+        connections: connections.value,
+    }, null, 2)
+
+    await copy(payload)
 }
 
 function clampZoom(value: number) {
